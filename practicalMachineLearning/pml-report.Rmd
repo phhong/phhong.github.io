@@ -1,0 +1,141 @@
+---
+title: "Exercise manner prediction report"
+author: "phhong"
+output: html_document
+---
+
+## Introduction
+
+This study investigates the data for barbell lifts activities of 6 participants collected by devices such as Jawbone Up, Nike FuelBand, and Fitbit. Based on the data, we build a model to predict the manner in which they did the exercise. We also estimate the out of sample error of the model with cross-validation.
+
+## Data cleaning
+
+After check the features in the dataset, we find that some of them are obviously irrelevant to the outcome such as user_name, timestamp and window. Some features are statistics of others and most of their values are NA so we don't involve them in the model either.
+
+```{r}
+# Load and clean training dataset
+trainingRawData<-read.csv("pml-training.csv")
+cleanTraining<-subset(trainingRawData, select=-1:-7)
+cleanTraining<-subset(cleanTraining, select=grep("var_|stddev_|avg_|max_|min_|skewness_|amplitude_|kurtosis_",names(cleanTraining), invert=TRUE))
+```
+
+## Select model
+
+First we will try to build model via classification methods with a small fraction of the training data and compare their performance base on accuracy. We divide the dataset into two part, training and testing. We will build the model based on training set and do prediction on testing set.
+
+```{r message=FALSE, warning = FALSE}
+library(caret)
+set.seed(15236)
+inTrain<-createDataPartition(y=cleanTraining$classe,p=0.1,list=FALSE)
+training<-cleanTraining[inTrain,]
+testing<-cleanTraining[-inTrain,]
+```
+
+For each model, we use 10-fold cross-validation.
+
+```{r message=FALSE, warning = FALSE}
+trControl<-trainControl(method = "cv",number=10)
+```
+
+
+### KNN
+
+K nearest neighbour method with standardizing pre-processing.
+
+```{r message=FALSE, warning = FALSE, cache=FALSE}
+set.seed(15646)
+modelFit<-train(classe~.,data=training,method="knn",preProcess = c("center", "scale"),trControl = trControl)
+pred<-predict(modelFit,testing)
+conMatrix<-confusionMatrix(pred,testing$classe)
+knnAcurracy<-conMatrix$overall
+```
+
+### Random forest 
+
+Random forest with 100 trees generated.
+
+```{r message=FALSE, warning = FALSE, cache=TRUE}
+set.seed(15646)
+modelFit<-train(classe~.,data=training,method="rf",trControl = trControl,ntree=100, prox=TRUE)
+pred<-predict(modelFit,testing)
+conMatrix<-confusionMatrix(pred,testing$classe)
+rfAcurracy<-conMatrix$overall
+```
+
+### Linear discriminant analysis
+
+```{r message=FALSE, warning = FALSE, cache=FALSE}
+set.seed(15646)
+modelFit<-train(classe~.,data=training,method="lda",trControl = trControl)
+pred<-predict(modelFit,testing)
+conMatrix<-confusionMatrix(pred,testing$classe)
+ldaAccuracy<-conMatrix$overall
+```
+
+### Naive Bayes
+
+```{r message=FALSE, warning = FALSE, cache=TRUE}
+set.seed(15646)
+modelFit<-train(classe~.,data=training,method="nb",trControl = trControl)
+pred<-predict(modelFit,testing)
+conMatrix<-confusionMatrix(pred,testing$classe)
+nbAccuracy<-conMatrix$overall
+```
+
+### Results
+
+```{r}
+cbind(knnAcurracy,rfAcurracy,ldaAccuracy,nbAccuracy)
+
+```
+
+From the accuracy, we find that the model built via random forest method has the best performance. 
+
+## Build Model
+
+In this section, we will use random forest and apply it to a larger fraction of training data with 10-folder cross-validation.
+
+```{r message=FALSE, warning = FALSE, cache=TRUE}
+# Divide dataset to training and testing set
+inTrain<-createDataPartition(y=cleanTraining$classe,p=0.7,list=FALSE)
+training<-cleanTraining[inTrain,]
+testing<-cleanTraining[-inTrain,]
+
+# Training data in parallel
+library(doParallel)
+cluster <- makeCluster(detectCores())
+registerDoParallel(cluster)
+trControl<-trainControl(method = "cv",number=10,allowParallel = TRUE)
+set.seed(15646)
+modelFit<-train(classe~.,data=training,method="rf",trControl = trControl,ntree=100, prox=TRUE)
+stopCluster(cluster)
+registerDoSEQ()
+
+```
+
+Let's check the final model and the out of sample error rate is 0.95%
+```{r message=FALSE, warning = FALSE, cache=TRUE}
+modelFit$finalModel
+```
+
+Then we apply the model to the testing dataset and check the accuracy
+
+```{r message=FALSE, warning = FALSE, cache=TRUE}
+pred<-predict(modelFit,testing)
+conMatrix<-confusionMatrix(pred,testing$classe)
+conMatrix$overall
+```
+
+## Prediction
+
+In the last step, we predict the 20 cases in testing data.
+
+```{r message=FALSE, warning = FALSE, cache=FALSE}
+# Load testing dataset
+testingRawData<-read.csv("pml-testing.csv")
+# Clean training dataset
+cleanTesting<-subset(testingRawData, select=-1:-7)
+cleanTesting<-subset(cleanTesting, select=grep("var_|stddev_|avg_|max_|min_|skewness_|amplitude_|kurtosis_",names(cleanTesting), invert=TRUE))
+pred<-predict(modelFit,cleanTesting)
+pred
+```
